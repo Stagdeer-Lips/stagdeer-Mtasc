@@ -27,9 +27,9 @@
 
 <div>
     <table>
-        <th>|DATA/TIME|</th>        
-        <th>|EVENT/RP|</th>        
-        <th>|CONTRIBUTOR|</th>
+        <th>DATA/TIME</th>        
+        <th>EVENT/RP</th>        
+        <th>CONTRIBUTOR</th>
         <tr>
             <td>2026/6/22|12:26[CHINA]</td>
             <td>First time submitting to the repository</td>
