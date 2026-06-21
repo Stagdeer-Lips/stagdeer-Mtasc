@@ -49,7 +49,7 @@ namespace stagdeer {
             }
 
             struct addrinfo* getResolverResult() {
-                if (M_ipv6addrinfo__) {
+                if (!M_ipv6addrinfo__) {
                     throw std::runtime_error("M_ipv4addrinfo__ is NullPtr!");
                 }
                 return M_ipv6addrinfo__;
