@@ -126,7 +126,7 @@ void doWrite(struct stagdeer::client::socketTcp::client_addrs addrs ,
                 printf("SUCCESS WRITED %zu BYTES\n", writed_bytes);
             }, 
         std::move(addrs), 
-        "Hello word!_____");  // Data to send (placeholder)
+        "Hello world!_____");  // Data to send (placeholder)
     return;
 }
 
