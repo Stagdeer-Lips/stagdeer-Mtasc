@@ -185,7 +185,7 @@ int main () {
             return;
         }, std::move(addrs));
     
-    return 1;
+    return 0;
 }
 
 ```
