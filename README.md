@@ -120,10 +120,10 @@ void doWrite(struct stagdeer::client::socketTcp::client_addrs addrs ,
             struct stagdeer::client::socketTcp::client_addrs&& addr){
                 // Callback: Check write result
                 if (err_code < 1) {
-                    printf("WRITED FAILED: %s\n" , err_message.c_str());
+                    printf("WRITE FALIED: %s\n" , err_message.c_str());
                     return;
                 }
-                printf("SUCCESS WRITED %zu BYTES\n", writed_bytes);
+                printf("SUCCESS WRITE %zu BYTES\n", writed_bytes);
             }, 
         std::move(addrs), 
         "Hello world!_____");  // Data to send (placeholder)
@@ -138,7 +138,7 @@ void doConnect(struct stagdeer::client::socketTcp::client_addrs addrs ,
             struct stagdeer::client::socketTcp::client_addrs&& addr){
                 // Callback: Check connection result
                 if (err_code < 1) {
-                    printf("CONNECT FAIELD: %s\n" , err_message.c_str());
+                    printf("CONNECT FALIED: %s\n" , err_message.c_str());
                     return;
                 }
                 printf("CONNECT SUCCESS: %s\n" , err_message.c_str());
