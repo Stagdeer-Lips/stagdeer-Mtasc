@@ -1,8 +1,10 @@
 cmake_minimum_required(VERSION 3.14)
-project(stagdeerThreadlib)
+project(stagdeer-Mtasclib)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
+
+set(CMAKE_CXX_FLAGS_DEBUG "-g -O0")
 
 if (WIN32) 
     message("[INFO] Compiling for Windows")
@@ -64,13 +66,11 @@ set(HEADER_DIR
 )
 
 set(LIB_DIR
-    lib/M_parser_lib.cc
+    lib/parser_lib/urlparser_lib.cc
     lib/M_maker_httpv1_template.cc
 )
 
-#jni CONFIG
-
-add_library(stagdeer_client ${LIB_DIR})
-add_executable(thread_test test/test.cc)
-target_include_directories(thread_test PRIVATE ${HEADER_DIR})
-target_link_libraries(thread_test stagdeer_client)
+add_library(mtasc ${LIB_DIR})
+add_executable(mtasc_test test/test.cc)
+target_include_directories(mtasc_test PRIVATE ${HEADER_DIR})
+target_link_libraries(mtasc_test mtasc)

@@ -27,13 +27,18 @@
 
 <div>
     <table>
-        <th>DATA/TIME</th>        
-        <th>EVENT/RP</th>        
-        <th>CONTRIBUTOR</th>
+        <th>|DATA/TIME|</th>        
+        <th>|EVENT/RP|</th>        
+        <th>|CONTRIBUTOR|</th>
         <tr>
             <td>2026/6/22|12:26[CHINA]</td>
             <td>First time submitting to the repository</td>
-            <td><a href="https://github.com/chromes-air">chromes-air</a></td>
+            <td><a href="https://github.com/chromes-air">chromes-air</a>
+            </td>
+            <td>2026/6/24|1:04[CHINA]</td>
+            <td>Changed ParserUrl parsing to use a state machine instead of brute-force parsing, fixed pointer errors in IPv6 parsing encapsulation, and renamed the CMake project to 'stagdeer-matsc' with support for 'async_read_until/async_read'.</td>
+            <td><a href="https://github.com/chromes-air">chromes-air</a>
+            </td>
         </tr>
     </table>
 </div>
@@ -56,6 +61,12 @@
                 <td>TCP/socket_tcp.hpp</td>
                 <td><a href="https://github.com/chromes-air">chromes-air</a></td>
             </tr>
+            <tr>
+                <td>2026/6/24|1:04[CHINA]</td>
+                <td>Rewrote URLPARSER to use a state machine for parsing, supporting both query and normal URLs. Updated 'async_read_until/async_read' to implement basic TCP operations. Planning to handle 'Chunked' later, focusing on the 'Exml' project this week to support XML parsing, which will be helpful later. After next week, the main focus will be on implementing SSL connection reading.</td>
+                <td>TCP/socket_tcp.hpp/Ipv4Addrs/Ipv6Addrs/Urlparser</td>
+                <td><a href="https://github.com/chromes-air">chromes-air</a></td>
+            </tr>
         </div>
     </table>
 </div>
@@ -64,7 +75,7 @@
 ## Next target
 
 <span>
-    Hide explicit initialization, use class instead of THREAD, support OpenSSL, organize header files , improve 'CMakeLists.txt'
+Started writing the 'Exml' project, after a week of development continued to implement SSL support, then finally started testing, and after that gradually added 'Download' and 'WebSocket' support to make Mtasc usable for development.
 </span>
 
 ##
@@ -78,117 +89,116 @@
 ```cpp
 
 #include "stagdeer/Mtasc/client/socket/TCP/socket_tcp.hpp"
-#include "stagdeer/Mtasc/include/client/clientapp/clientTool.hpp"
 #include <cstddef>
 #include <cstdio>
 #include <memory>
 #include <string>
 #include <utility>
 
-// Global variable to store parsed URL result
-// TODO: Replace with class member in production code
-struct stagdeer::client::clientTool::client_parser_url M_parser_result_;
+stagdeer::client::clientToolPtr tool_ptr = stagdeer::client::clientTool::newClientTool();
 
-// Step 2: Build HTTP/1.1 template from parsed URL
-void doMakeHttpv1tmp(stagdeer::client::clientToolPtr tool_ptr) {
-    tool_ptr->asyncCreateHttpv1Tmp([](const std::string& httpTmp){
-            // Callback: Print the generated HTTP template
-            printf("TMP:\n%s\n" , httpTmp.c_str());
-        }, M_parser_result_.addrs_host,      // Host from parsed URL
-         M_parser_result_.addrs_path,        // Path from parsed URL
-         "SB",                               // Body (placeholder)
-         stagdeer::httpMethod::GET,          // HTTP method
-         {{"Content-type" , "application/json"}}  // Headers
-        );
-}
-
-// Step 1: Parse the URL string
-void doParserUrl(stagdeer::client::clientToolPtr tool_ptr , const std::string& url) {
-    tool_ptr->asyncParserUri([tool_ptr]
-        (struct stagdeer::client::clientTool::client_parser_url parser_result){
-            // Callback: Store parsed result and proceed to build HTTP template
-            M_parser_result_ = std::move(parser_result);
-            doMakeHttpv1tmp(tool_ptr);
-        }, url);
-}
-
-// Step 4: Write data to the connected socket
-void doWrite(struct stagdeer::client::socketTcp::client_addrs addrs ,
-    std::shared_ptr<stagdeer::client::socketTcp> TcpPtr) {
-        TcpPtr->async_write([](int err_code , std::string err_message, 
-            size_t writed_bytes , 
-            struct stagdeer::client::socketTcp::client_addrs&& addr){
-                // Callback: Check write result
+void doRead(struct stagdeer::client::socketTcp::client_addrs addrs , 
+    stagdeer::client::socketTcpPtrT TcpPtr) {
+        TcpPtr->async_read_until([TcpPtr](int err_code , std::string err_message , size_t accepet_bytes ,
+             std::shared_ptr<stagdeer::client::readBuffer>&& result_buffer_ , 
+                struct stagdeer::client::socketTcp::client_addrs&& addrs)
+            {
                 if (err_code < 1) {
-                    printf("WRITE FALIED: %s\n" , err_message.c_str());
+                    printf("READ FAILED! %s\n" , err_message.c_str());
                     return;
                 }
-                printf("SUCCESS WRITE %zu BYTES\n", writed_bytes);
-            }, 
-        std::move(addrs), 
-        "Hello world!_____");  // Data to send (placeholder)
+                std::string data(result_buffer_->peekData());
+                /**
+                    Here you can parse HTTP/1.1, parse 'Content-Length',
+                     and then tell 'async_read' how many bytes your body needs.
+                */
+                //READ FULL
+                TcpPtr->async_read([](int err_code_ , std::string err_message_ , size_t accepet_bytes_ , 
+                    std::shared_ptr<stagdeer::client::readBuffer>&& buffer ,
+                        struct stagdeer::client::socketTcp::client_addrs&& _addrs){
+                        if (err_code_ < 0) {
+                            printf("READ FAILED: %s\n" , err_message_.c_str());
+                            return;
+                        }
+                        /**
+                        Here, you can parse a full HTTP response wrapped in your 'Response' 
+                        class to become an HTTP client library.
+                        */
+                        printf("DATA:\n%s\n" , buffer->peekData());
+                    return;
+                }, std::move(result_buffer_) , std::move(addrs), 429);
+             }, std::move(addrs), "\r\n\r\n");
     return;
 }
 
-// Step 3: Establish TCP connection to the resolved address
-void doConnect(struct stagdeer::client::socketTcp::client_addrs addrs , 
-    std::shared_ptr<stagdeer::client::socketTcp> TcpPtr) {
-        TcpPtr->async_try_connect_tcp([TcpPtr](int err_code , 
-            std::string err_message , 
-            struct stagdeer::client::socketTcp::client_addrs&& addr){
-                // Callback: Check connection result
+void doWrite(struct stagdeer::client::socketTcp::client_addrs addrs ,
+    stagdeer::client::socketTcpPtrT TcpPtr) {
+        /**
+          From now on, block template generation and URL parsing  
+        */
+        struct stagdeer::client::clientTool::client_parser_basic_url url_result = tool_ptr->syncParserBasicUri
+        ("http://httpbin.org/json");
+            std::string httpv1tmp = tool_ptr->syncCreateHttpv1template(url_result.addrs_host,
+                url_result.addrs_path, "NULL", stagdeer::httpMethod::GET,
+                {{"Content-type" , "application/json"}}) ;
+        std::cout << httpv1tmp << std::endl; //Debug print template here
+        /**
+        RESULT:
+            GET /json HTTP/1.1
+            Host: httpbin.org
+            Content-type: application/json
+            Connection: close
+        */
+        TcpPtr->async_write([TcpPtr](int err_code , std::string err_message, size_t writed_bytes , 
+            struct stagdeer::client::socketTcp::client_addrs&& addr) mutable{
                 if (err_code < 1) {
-                    printf("CONNECT FALIED: %s\n" , err_message.c_str());
+                    printf("WRITED FAILED: %s\n" , err_message.c_str());
+                    return;
+                }
+                
+                printf("SUCCESS WRITE %zu BYTES\n" , writed_bytes);
+                doRead(std::move(addr), TcpPtr);
+                return;
+            }, 
+        std::move(addrs), httpv1tmp);
+    return;
+}
+
+void doConnect(struct stagdeer::client::socketTcp::client_addrs addrs , 
+    stagdeer::client::socketTcpPtrT TcpPtr) {
+        TcpPtr->async_try_connect_tcp([TcpPtr](int err_code , std::string err_message , 
+            struct stagdeer::client::socketTcp::client_addrs&& addr){
+                if (err_code < 1) {
+                    printf("CONNECT FAIELD: %s\n" , err_message.c_str());
                     return;
                 }
                 printf("CONNECT SUCCESS: %s\n" , err_message.c_str());
-                // Proceed to write data after successful connection
                 doWrite(std::move(addr), TcpPtr);
                 return;
             }, std::move(addrs));
     return;
 }
 
-// Main entry point
 int main () {
-    // Initialize the global thread pool with 5 worker threads
     stagdeer::THREAD& threadInit = stagdeer::THREAD::getInstance();
     threadInit.createThreadManager(5);
-    
-    // Create the client tool (URL parser + HTTP template builder)
-    stagdeer::client::clientToolPtr toolPtr = 
-        stagdeer::client::clientTool::newClientTool();
-    
-    // Step 1: Parse the URL
-    doParserUrl(toolPtr, "http://baidu.com/");
-    
-    // Create the TCP socket client
-    std::shared_ptr<stagdeer::client::socketTcp> TCP =
-        std::make_shared<stagdeer::client::socketTcp>("www.baidu.com" , 80 , "SB");
+    stagdeer::client::socketTcpPtrT TCP = std::make_shared<stagdeer::client::socketTcp>("httpbin.org" , 80 , "NULL");
     struct stagdeer::client::socketTcp::client_addrs addrs = TCP->getMyaddr();
-    
-    // Step 2: Resolve domain name asynchronously
     TCP->async_resolver_domain([TCP]
-        (int err_code , std::string error_msg , 
-         stagdeer::client::socketTcp::client_addrs&& addr){
+        (int err_code , std::string error_msg , stagdeer::client::socketTcp::client_addrs&& addr){
             if (err_code < 1) {
                 printf("RESOLVER FAILED: %s\n" , error_msg.c_str());
                 return;
             }
-            printf("RESOLVER SUCCESS\n");
-            
-            // Step 3: Connect to the resolved address
-            stagdeer::THREAD& newThread = stagdeer::THREAD::getInstance();
+        printf("RESOLVER SUCCESS\n");
+        stagdeer::THREAD& newThread = stagdeer::THREAD::getInstance();
             newThread.getThreadManager()
-                .asyncTaskvoid(std::move(doConnect), std::move(addr), TCP);
-            printf("TRY CONNECT!\n");
-            return;
-        }, std::move(addrs));
-    
-    return 0;
+            .asyncTaskvoid(std::move(doConnect), std::move(addr) ,TCP);
+        printf("TRY CONNECT!\n");
+        return;
+    }, std::move(addrs));
 }
 
+
 ```
-
-
 ###

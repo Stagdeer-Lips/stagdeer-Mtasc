@@ -9,6 +9,7 @@
 #include <cstdint>
 #include <cstdio>
 #include <deque>
+#include <exception>
 #include <functional>
 #include <future>
 #include <memory>
@@ -22,8 +23,6 @@
 
 #define SLEEP(M_sleep_time_microse__)\
     std::this_thread::sleep_for(std::chrono::microseconds(M_sleep_time_microse__))
-
-
 
 namespace stagdeer {
     class THREAD;
@@ -87,14 +86,23 @@ namespace stagdeer {
                 for (size_t index = 0; index < threadNum; ++index) {
                     std::unique_ptr<struct threadMeta> newthreadMetas = std::make_unique<struct threadMeta>();
                     newthreadMetas->M_thread = std::thread([this](){
-                        while (!M_stop.load()) {
+                        while (true) {
                             std::function<void()> _task;
                             {
                                 std::unique_lock<std::mutex> _tasksLock(*M_tasksMutex_);
-                                if (M_tasks.empty() && M_stop.load()) break;
+                              
                                 M_cv->wait(_tasksLock , [this](){
                                     return !M_tasks.empty() || M_stop.load();
                                 });
+
+                                if (M_tasks.empty() && M_stop.load()) {
+                                    break;
+                                }
+
+                                if (M_tasks.empty()) {
+                                    continue;
+                                }
+
                                 _task = std::forward<std::function<void()>>(M_tasks.front());
                                 M_tasks.pop_front();
 
@@ -103,11 +111,13 @@ namespace stagdeer {
                                 _task();
                                 {
                                     std::unique_lock<std::mutex> _countLock(*M_countMutex_);
-                                    M_thread_rurinng_count --;
+                                    if (M_thread_rurinng_count > 0) {
+                                        M_thread_rurinng_count --;
+                                    }
+                                    if (M_thread_rurinng_count.load() == 0 && M_tasks.empty()) {
+                                        M_cv->notify_all();
+                                    }
                                 }
-                            }
-                            if (M_thread_rurinng_count.load() == 0 && M_tasks.empty()) {
-                                M_cv->notify_all();
                             }
                         }
                     });
@@ -123,7 +133,10 @@ namespace stagdeer {
                   typename util::lamdba_trais::M_get_lamdba_ret_Tp
                     <Tp , Args ...>::__M_ret_lmdba, void>::__is_M_ret_Tp
             >::type
-            asyncTaskvoid(Tp&& taskfunc , Args&& ... token) 
+            asyncTaskvoid(
+                Tp&& taskfunc , 
+                Args&& ... token
+                 ) 
                 noexcept {
                     using taskRetTp = std::invoke_result_t<Tp , Args ...>;
                     if constexpr (std::is_same_v<taskRetTp , void>) {
@@ -133,13 +146,11 @@ namespace stagdeer {
                               _taskfunc(std::move(args) ...);
                             };
                         {
-                            std::unique_lock<std::mutex> _tasksLock(*M_tasksMutex_);
+                            std::unique_lock<std::mutex> _tasksLock(*M_countMutex_);
                           
                             M_tasks.push_back(std::move(M_task));  
-                            {
-                                std::unique_lock<std::mutex> _countLock(*M_countMutex_);
-                                M_thread_rurinng_count ++;
-                            }
+                            M_thread_rurinng_count++;
+                            
                         }
                         M_cv->notify_one();
                     }
@@ -179,9 +190,10 @@ namespace stagdeer {
             
             void waitAllthread() {
                 M_stop.store(true);
+                M_cv->notify_all();
                 {
                     std::chrono::seconds M_threadTimout = std::chrono::seconds(5);
-                    std::unique_lock<std::mutex> M_countlock(*M_tasksMutex_);
+                    std::unique_lock<std::mutex> M_countlock(*M_countMutex_);
                     bool M_completd = M_cv->wait_for(M_countlock , M_threadTimout , 
                         [this](){
                             return M_thread_rurinng_count.load() == 0 && M_tasks.empty();
@@ -190,28 +202,36 @@ namespace stagdeer {
                         fprintf(stderr, "Warning: Thread pool did not complete in time\n");
                     }
                 }
-    
-                M_cv->notify_all();
 
                 for (std::vector<std::unique_ptr<struct threadMeta>>::iterator
                     M_thread_it = M_workThreadMetas.begin(); 
                     M_thread_it != M_workThreadMetas.end();
                     ++ M_thread_it) {
                         if (M_thread_it->get()->M_thread.joinable()) {
-                            M_thread_it->get()->M_thread.join();
+                            try {
+                                M_thread_it->get()->M_thread.join();
+                            } catch (std::exception& M_e) {
+                            
+                            };
                         }
                     }
             }
 
             ~ThreadManager() {
                 M_stop.store(true);
-                M_cv->notify_all();
-                for (std::vector<std::unique_ptr<struct threadMeta>>::iterator 
-                    it = M_workThreadMetas.begin();
-                    it != M_workThreadMetas.end(); ++it) {
-                        if (it->get()->M_thread.joinable()) {
-                            it->get()->M_thread.join();
-                        }
+                if (M_stop.load()) {
+                    M_cv->notify_all();
+                    for (std::vector<std::unique_ptr<struct threadMeta>>::iterator 
+                        it = M_workThreadMetas.begin();
+                        it != M_workThreadMetas.end(); ++it) {
+                            if (it->get()->M_thread.joinable()) {
+                                try {
+                                    it->get()->M_thread.join();
+                                } catch (const std::exception& M_e) {
+                                    
+                                }
+                            }
+                    }
                 }
             }
     };

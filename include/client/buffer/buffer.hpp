@@ -29,10 +29,15 @@ namespace stagdeer {
                     return *this;
                 };
 
-            readBuffer(const readBuffer&) = delete;
-            readBuffer& operator=(readBuffer&) = delete;
+            readBuffer(const readBuffer&) = default;
+            readBuffer& operator=(readBuffer&) = default;
 
-            void appendTobuffer(const char* M_data__ , size_t M_data_size__);
+            void appendTobuffer(const char* M_data__ , size_t M_data_size__) {
+                M_ensureWriteableBytes(M_data_size__);
+                memcpy(M_buffer_.data() + M_write_pointer , M_data__ , M_data_size__);
+                M_write_pointer += M_data_size__;
+            }
+
             void retrieveData(size_t M_data_len__) {
                 M_read_pointer += M_data_len__;
                 if (M_read_pointer == M_write_pointer) {
