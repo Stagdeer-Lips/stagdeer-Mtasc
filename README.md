@@ -7,10 +7,8 @@
          Asynchronous client framework, users build client libraries relying on lightweight POSIX-Socket,
           OpenSSL, and C++ Thread. Since it’s aimed at 'client' 
           development, Epoll/Iocp are not used and supports IPv4/IPv6.
-          <hr>
-          <span>
            Welcome brothers to suggest RP, so the code becomes more stable !
-          </span>
+          <hr>
     </span>
     <img style="width: 200px; border-radius:20px;" src="github_assets/stagdeer-matsc-logo.png"></img>
 </div>
