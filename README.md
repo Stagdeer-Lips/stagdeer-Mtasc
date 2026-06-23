@@ -31,9 +31,9 @@
         <tr>
             <td>2026/6/22|12:26[CHINA]</td>
             <td>First time submitting to the repository</td>
-            <td><a href="https://github.com/chromes-air">chromes-air</a>
-            </td>
-            <td>2026/6/24|1:04[CHINA]</td>
+            <td><a href="https://github.com/chromes-air">chromes-air</a>  
+        </tr>
+        <tr> <td>2026/6/24|1:04[CHINA]</td>
             <td>Changed ParserUrl parsing to use a state machine instead of brute-force parsing, fixed pointer errors in IPv6 parsing encapsulation, and renamed the CMake project to 'stagdeer-matsc' with support for 'async_read_until/async_read'.</td>
             <td><a href="https://github.com/chromes-air">chromes-air</a>
             </td>
