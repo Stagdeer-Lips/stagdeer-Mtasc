@@ -11,10 +11,11 @@
           <hr>
     </span>
     <img style="width: 200px; border-radius:20px;" src="github_assets/stagdeer-matsc-logo.png"></img>
+</div>
+
     [![License](https://img.shields.io/badge/License-MIT-blue.svg)]
     [![C++](https://img.shields.io/badge/C++-20-blue.svg)]
     [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)]
-</div>
 
 ###
 
