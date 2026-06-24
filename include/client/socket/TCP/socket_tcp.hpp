@@ -19,6 +19,7 @@
 #include <memory>
 #include <stdexcept>
 #include <string>
+#include <system_error>
 #include <unistd.h>
 #include <unordered_map>
 #include <utility>
@@ -32,9 +33,9 @@ namespace stagdeer {
             socketTcp() = default;
 
             socketTcp(const char* M_hostname__ , uint16_t M_port__ , const char* M_message__) {
-                M_client_config_addrs.M_addrs_host = M_hostname__;
-                M_client_config_addrs.M_addrs_port = M_port__; 
-                M_client_config_addrs.M_clientMessage = M_message__;
+                M_client_context.M_addrs_host = M_hostname__;
+                M_client_context.M_addrs_port = M_port__; 
+                M_client_context.M_clientMessage = M_message__;
                 return;
             }
 
@@ -44,8 +45,7 @@ namespace stagdeer {
                 return;
             }
             socketTcp(stagdeer::client::socketTcp&& other_tcp) noexcept: 
-                M_client_config_addrs(std::forward<struct client_addrs>
-                    (other_tcp.M_client_config_addrs)) , 
+                M_client_context(std::move(other_tcp.M_client_context)) , 
                     M_resolver_Ipv4(other_tcp.M_resolver_Ipv4),
                     M_resolver_Ipv6(other_tcp.M_resolver_Ipv6),
                     M_connects(std::forward<std::unordered_map<M_SOCKET_TP, struct connectInfo>>(other_tcp.M_connects)){};
@@ -55,14 +55,15 @@ namespace stagdeer {
                     noexcept {
                         if (this != &other_tcp_operator) {
                             M_connects = std::forward<std::unordered_map<M_SOCKET_TP, struct connectInfo>>(other_tcp_operator.M_connects);
-                            M_client_config_addrs = std::forward<struct client_addrs>(other_tcp_operator.M_client_config_addrs);
+                            M_client_context = std::forward<struct client_context>
+                            (other_tcp_operator.M_client_context);
                             M_resolver_Ipv4 = other_tcp_operator.M_resolver_Ipv4;
                             M_resolver_Ipv6 = other_tcp_operator.M_resolver_Ipv6;
                         }
                         return *this;
                     }
 
-                struct client_addrs {
+                struct client_context {
                     const char* M_addrs_host;
                     uint16_t M_addrs_port = 80;
                     struct addrinfo* M_resovler_addrs;
@@ -79,8 +80,8 @@ namespace stagdeer {
                     bool M_is_retry_success = false;
                     std::shared_ptr<stagdeer::client::readBuffer> M_client_read_buffer;
 
-                    client_addrs() = default;
-                    client_addrs(client_addrs&& other_addrs) 
+                    client_context() = default;
+                    client_context(client_context&& other_addrs) 
                         noexcept: M_addrs_host(std::forward<const char*>(other_addrs.M_addrs_host)),
                             M_client_retry_write_bytes(std::move(other_addrs.M_client_retry_write_bytes)),
                             M_client_write_bytes(std::move(other_addrs.M_client_write_bytes)),
@@ -96,7 +97,7 @@ namespace stagdeer {
                             M_max_rety_count(std::forward<int>(other_addrs.M_max_rety_count)),
                             M_client_read_buffer(std::move(other_addrs.M_client_read_buffer)) 
                             {};
-                    client_addrs& operator=(client_addrs&& other_addrs) {
+                    client_context& operator=(client_context&& other_addrs) {
                         if (this != &other_addrs) {
                             M_client_retry_write_bytes = std::move(other_addrs.M_client_retry_write_bytes);
                             M_max_rety_count = std::forward<int>(other_addrs.M_max_rety_count);
@@ -115,12 +116,12 @@ namespace stagdeer {
                         }
                         return *this;
                     };
-                    client_addrs(const client_addrs&) = default;
-                    client_addrs& operator=(const client_addrs&) = default;
+                    client_context(const client_context&) = default;
+                    client_context& operator=(const client_context&) = default;
                 };
 
-                struct client_addrs getMyaddr() {
-                    return M_client_config_addrs;
+                struct client_context getClientContext() {
+                    return M_client_context;
                 }
 
                 /**
@@ -132,109 +133,115 @@ namespace stagdeer {
                 typename stagdeer::util::lamdba_trais::constraint<
                     stagdeer::util::lamdba_trais::M_is_retTp
                         <typename stagdeer::util::lamdba_trais::M_get_lamdba_ret_Tp<
-                            Tp, int , std::string , struct stagdeer
-                                ::client::socketTcp::client_addrs&&>
+                            Tp, const std::error_code&, struct stagdeer
+                                ::client::socketTcp::client_context&&>
                         ::__M_ret_lmdba, void>
                     ::__is_M_ret_Tp
                 >::type
                 async_resolver_domain(
                     Tp&& callback_token,
-                    struct client_addrs&& M_addrs_ , 
+                    struct client_context&& M_context_ , 
                     uint16_t M_timeout = 2000 ,
                     bool M_reuse_addr = true,
                     bool M_enable_Ipv6 = false,
                     int M_max_ret_count = 10
                 ) noexcept {
-                    if (M_addrs_.M_addrs_port == 0 || M_addrs_.M_addrs_host == nullptr) {
+                    if (M_context_.M_addrs_port == 0 || M_context_.M_addrs_host == nullptr) {
+                        std::error_code new_ec = std::make_error_code(std::errc::invalid_argument);
                             M_threadManager.getThreadManager()
                                 .asyncTaskvoid(std::move(callback_token) ,
-                                    -1 , "Paramter canot empty" , std::move(M_addrs_));
+                                    new_ec , std::move(M_context_));
                         return -1;
                     }
                     //ADD CONFIG TO ADDRS STRUCT
-                    M_addrs_.M_timeout = M_timeout;
-                    M_addrs_.M_is_enable_ipV6 = M_enable_Ipv6;
-                    M_addrs_.M_max_rety_count = M_max_ret_count;
+                    M_context_.M_timeout = M_timeout;
+                    M_context_.M_is_enable_ipV6 = M_enable_Ipv6;
+                    M_context_.M_max_rety_count = M_max_ret_count;
                         //CREATE NEW SOSKER
                         //RESOLVER DOMAIN
                         if (M_enable_Ipv6) {
                             //RESOVLER IPV6
                           M_resolver_Ipv6 = new stagdeer::
-                          ip::Ipv6addrs(M_addrs_.M_addrs_host , M_addrs_.M_addrs_port);
+                          ip::Ipv6addrs(M_context_.M_addrs_host , M_context_.M_addrs_port);
                             try {
                                 struct addrinfo* resolver_result = M_resolver_Ipv6->getResolverResult();
                                 if (!resolver_result) {
                                     #ifdef STAGDEER_GNU_LINUX
-                                        std::string M_err_message = strerror(errno);
+                                        std::error_code new_ec(errno , std::system_category());
                                             M_threadManager.getThreadManager()
                                                 .asyncTaskvoid(std::move(callback_token) ,
-                                                 -1 , M_err_message , std::move(M_addrs_));
+                                                 new_ec , std::move(M_context_));
                                         return -1;
                                     #else 
                                         //TODO: WINDOWS ERROR HANDLERS
                                     #endif
                                 }
                                 //CREATE SOCKET
-                                M_addrs_.M_socketfd = socket(resolver_result->ai_family, 
+                                M_context_.M_socketfd = socket(resolver_result->ai_family, 
                                     resolver_result->ai_socktype, resolver_result->ai_protocol);
                                 //ADD TO THREAD TASK
-                                if (M_addrs_.M_socketfd == -1) {
+                                if (M_context_.M_socketfd == -1) {
+                                    std::error_code new_ec = std::make_error_code(std::errc::bad_file_descriptor);
                                     M_threadManager.getThreadManager()
-                                        .asyncTaskvoid(std::move(callback_token) , -1 , 
-                                            std::string("Invalid socket fd: " + std::to_string(M_addrs_.M_socketfd)) , 
-                                            std::move(M_addrs_));
+                                        .asyncTaskvoid(std::move(callback_token) ,new_ec,
+                                            std::move(M_context_));
                                         return -1;
                                 }
-                                M_addrs_.M_resovler_addrs = resolver_result;
+                                M_context_.M_resovler_addrs = resolver_result;
+                                std::error_code new_ec;
                                 M_threadManager.getThreadManager()
-                                    .asyncTaskvoid(std::move(callback_token),
-                                     1 , std::string("Create socket success") ,
-                                      std::move(M_addrs_));
+                                    .asyncTaskvoid(std::move(callback_token), new_ec,
+                                      std::move(M_context_));
                                 return 1;
                             } catch (std::exception& M_err) {
                                 //RESOLVER FAILED
-                                printf("Resolver hostname failed! failed: %s\n" , 
-                                    std::string(M_err.what()).c_str());
+                                std::error_code new_ec = std::make_error_code(std::errc::io_error);
+                                M_threadManager.getThreadManager()
+                                    .asyncTaskvoid(std::move(callback_token), new_ec , 
+                                        std::move(M_context_));
                                 return -1;
                             }
                             return -1;
                         }
                         //RESOLVER IPV4
                         M_resolver_Ipv4 = new stagdeer::
-                            ip::Ipv4addrs(M_addrs_.M_addrs_host , M_addrs_.M_addrs_port);
+                            ip::Ipv4addrs(M_context_.M_addrs_host , M_context_.M_addrs_port);
                         try {
                             struct addrinfo* resolver_result = M_resolver_Ipv4->getResolverResult();
                             if (!resolver_result) {
                                 #ifdef STAGDEER_GNU_LINUX
-                                    std::string error_message = strerror(errno);
-                                        M_threadManager.getThreadManager()
-                                            .asyncTaskvoid(std::move(callback_token) ,
-                                             -1 , error_message , std::move(M_addrs_));
+                                std::error_code ec(errno , std::system_category());
+                                    M_threadManager.getThreadManager()
+                                            .asyncTaskvoid(std::move(callback_token) , 
+                                            ec, std::move(M_context_));
                                     return -1;
                                 #else 
                                     //TODO: WINDOWS ERROR HANDLERS
                                 #endif
                             }
                             //CREATE SOCKET
-                            M_addrs_.M_socketfd = socket(resolver_result->ai_family, 
+                            M_context_.M_socketfd = socket(resolver_result->ai_family, 
                                 resolver_result->ai_socktype, resolver_result->ai_protocol);
                             //ADD TO THREAD TASK
-                            if (M_addrs_.M_socketfd == -1) {
+                            if (M_context_.M_socketfd == -1) {
+                                std::error_code new_ec = std::make_error_code(std::errc::bad_file_descriptor);
                                 M_threadManager.getThreadManager()
-                                    .asyncTaskvoid(std::move(callback_token) , 
-                                    -1 ,std::string("Invalid socket fd: " + std::to_string(M_addrs_.M_socketfd)),
-                                    std::move(M_addrs_));
+                                    .asyncTaskvoid(std::move(callback_token) , new_ec,
+                                    std::move(M_context_));
                                 return -1;
                             }
-                            M_addrs_.M_resovler_addrs = resolver_result;
+                            M_context_.M_resovler_addrs = resolver_result;
+                            std::error_code new_ec;
                             M_threadManager.getThreadManager()
-                                .asyncTaskvoid(std::move(callback_token) , 1 , 
-                                std::string("Create success"), std::move(M_addrs_));
+                                .asyncTaskvoid(std::move(callback_token) ,new_ec,
+                                 std::move(M_context_));
                             return 1;
                         } catch (std::exception& M_err) {
                             //RESOLVER FAILED
-                            printf("Resolver hostname failed! failed: %s\n" ,
-                                 std::string(M_err.what()).c_str());
+                            std::error_code new_ec = std::make_error_code(std::errc::io_error);
+                            M_threadManager.getThreadManager()
+                                .asyncTaskvoid(std::move(callback_token) ,new_ec,
+                                 std::move(M_context_));
                             return -1;
                         }
                         return -1;
@@ -251,100 +258,102 @@ namespace stagdeer {
                 inline typename stagdeer::util::lamdba_trais::constraint<
                     stagdeer::util::lamdba_trais::M_is_retTp<
                         typename stagdeer::util::lamdba_trais::M_get_lamdba_ret_Tp< 
-                            Tp&&, int , std::string , struct stagdeer
-                                ::client::socketTcp::client_addrs&&>::__M_ret_lmdba, void 
+                            Tp&&, const std::error_code& , struct stagdeer
+                                ::client::socketTcp::client_context&&>::__M_ret_lmdba, void 
                     >::__is_M_ret_Tp
                 >::type
                 async_try_connect_tcp(
                     Tp&& callback_token,
-                    struct client_addrs&& M_addrs_
+                    struct client_context&& M_context_
                 ) noexcept {
-                        if (M_addrs_.M_addrs_host == nullptr || M_addrs_.M_resovler_addrs == nullptr) {
+                        if (M_context_.M_addrs_host == nullptr || M_context_.M_resovler_addrs == nullptr) {
+                            std::error_code new_ec = std::make_error_code(std::errc::bad_file_descriptor);
                             M_threadManager.getThreadManager()
-                                .asyncTaskvoid(std::move(callback_token),
-                                 -1 , std::string("Paramter error!") ,
-                                  std::move(M_addrs_));
+                                .asyncTaskvoid(std::move(callback_token), new_ec ,
+                                  std::move(M_context_));
                             return -1;
                         }
                             //VERIFIYCATION FD
-                            if (M_addrs_.M_socketfd == -1) {
-                                //INVALID FD
-                                M_threadManager.getThreadManager()
-                                    .asyncTaskvoid(std::move(callback_token) ,  -1 ,
-                                     std::string("Invalid socket fd: " + std::to_string(M_addrs_.M_socketfd)) , 
-                                     std::move(M_addrs_));
+                            if (M_context_.M_socketfd == -1) {
+                                //INVALID FD   
+                            std::error_code new_ec = std::make_error_code(std::errc::bad_file_descriptor);
+                            M_threadManager.getThreadManager()
+                                .asyncTaskvoid(std::move(callback_token), new_ec ,
+                                  std::move(M_context_));
                                 return -1;
                             }
                             //VERIFIYCATION INVALID IPADDRS
-                            struct client_addrs M_addr = M_tryIpaddrs(std::move(M_addrs_));
-                            if (M_addr.M_this_addr_invalid) {
+                            struct client_context try_context_ = M_tryIpaddrs(M_context_);
+                            if (try_context_.M_this_addr_invalid) {
                                // ALL ADDRS INVALID
-                                M_addrs_ = std::move(M_addr);
+                               std::error_code ec = std::make_error_code(std::errc::address_not_available);
+                                M_context_ = std::move(try_context_);
                                 M_threadManager.getThreadManager()
                                     .asyncTaskvoid(std::move(callback_token) ,
-                                    -1 , std::string("All resolver addrs invalid") , 
-                                   std::move(M_addrs_));
+                                ec , std::move(M_context_));
                                return -1;
                             }
                             //CONNECTION RESOLVER RESULT ADDRS
-                           M_addrs_ = std::move(M_addr);
-                           socket_setFcntl(M_addrs_.M_socketfd);
-                            int M_connectRet = connect(M_addrs_.M_socketfd,M_addrs_.M_resovler_addrs->ai_addr, 
-                            M_addrs_.M_resovler_addrs->ai_addrlen);
+                           M_context_ = std::move(M_context_);
+                           socket_setFcntl(M_context_.M_socketfd);
+                            int M_connectRet = connect(M_context_.M_socketfd,M_context_.M_resovler_addrs->ai_addr, 
+                            M_context_.M_resovler_addrs->ai_addrlen);
                                 if (M_connectRet < 0) {
                                     //ERROR HANDLER
 
                                     //SETTING TIMEOUT
                                     fd_set M_writefds;
                                     FD_ZERO(&M_writefds);
-                                    FD_SET(M_addrs_.M_socketfd, &M_writefds);
+                                    FD_SET(M_context_.M_socketfd, &M_writefds);
 
                                     struct timeval M_tv;
-                                    M_tv.tv_sec = M_addrs_.M_timeout;
+                                    M_tv.tv_sec = M_context_.M_timeout;
                                     M_tv.tv_usec = 0;
 
                                     #ifdef STAGDEER_GNU_LINUX
-                                    int M_select_ret = select(M_addrs_.M_socketfd + 1, NULL , &M_writefds, NULL, &M_tv);
+                                    int M_select_ret = select(M_context_.M_socketfd + 1, NULL , &M_writefds, NULL, &M_tv);
                                     if (M_select_ret < 0) {
                                         int errno_copy = errno;
-                                        const std::string M_erro_message = strerror(errno);
+                                        std::error_code ec = std::make_error_code(std::errc::timed_out);
                                         if (errno_copy == ECONNREFUSED || errno_copy == ENETUNREACH || errno_copy == EHOSTUNREACH) {
                                             M_threadManager.getThreadManager()
                                                 .asyncTaskvoid(std::move(callback_token) , 
-                                                -1 , std::string("Connect failed: " + M_erro_message),
-                                                std::move(M_addrs_));
+                                                ec,std::move(M_context_));
                                             return -1;
                                         }
-                                        struct client_addrs M_retry_addr = 
-                                            M_retryTcpConnect(std::move(M_addrs_) , errno_copy);
-                                        M_addrs_ = std::move(M_retry_addr);
-                                        if (M_addrs_.M_is_retry_success) {
+                                        struct client_context M_retry_ctx = 
+                                            M_retryTcpConnect(M_context_ , errno_copy);
+                                        M_context_ = std::move(M_retry_ctx);
+                                        if (M_context_.M_is_retry_success) {
                                             //RETRY SUCCESS
+                                            std::error_code ec;
                                             M_threadManager.getThreadManager()
-                                                .asyncTaskvoid(std::move(callback_token) , 2 ,
-                                                 std::string("Retry connect suceess") , std::move(M_addrs_));
+                                                .asyncTaskvoid(std::move(callback_token) ,
+                                                ec ,
+                                                 std::move(M_context_));
                                             return 2;
                                         }
                                         //RETRY FAILED
                                     #else
                                         //TODO: WINDOWS ERROR HEANDLER
                                     #endif
-                                    std::string M_err_message = strerror(errno);
+                                    std::error_code ec_(errno , std::system_category());
                                     M_threadManager.getThreadManager()
-                                        .asyncTaskvoid(std::move(callback_token) , -1 , 
-                                        std::string("Connect failed" + M_err_message) , std::move(M_addrs_));
+                                        .asyncTaskvoid(std::move(callback_token) , ec_ , std::move(M_context_));
                                     return -1;
                                 } else if (M_select_ret == 0) {
+                                    std::error_code ec_ = std::make_error_code(std::errc::connection_reset);
                                     M_threadManager.getThreadManager()
-                                        .asyncTaskvoid(std::move(callback_token) , -1 , 
-                                        std::string("Connect failed: connection timeout") , std::move(M_addrs_));
+                                        .asyncTaskvoid(std::move(callback_token) , ec_ ,
+                                         std::move(M_context_));
                                     return -1;
                                 }
                             }
                             //CONNECT SUCCESS
+                            std::error_code ec;
                             M_threadManager.getThreadManager()
-                                .asyncTaskvoid(std::move(callback_token) , 1 ,
-                                 std::string("Connect success") , std::move(M_addrs_));
+                                .asyncTaskvoid(std::move(callback_token) , ec
+                                 , std::move(M_context_));
                             return 1;
                 }
 
@@ -359,80 +368,80 @@ namespace stagdeer {
                 typename stagdeer::util::lamdba_trais::constraint<
                     stagdeer::util::lamdba_trais::M_is_retTp<
                         typename stagdeer::util::lamdba_trais::M_get_lamdba_ret_Tp<
-                            Tp, int , std::string , size_t , 
-                                struct client_addrs&&>::__M_ret_lmdba , void 
+                            Tp, const std::error_code& , size_t , 
+                                struct client_context&&>::__M_ret_lmdba , void 
                     >::__is_M_ret_Tp
                 >::type
                 async_write(
                     Tp&& callback_token, 
-                    struct client_addrs&& M_addr__,
+                    struct client_context&& M_context__,
                     const std::string& M_message__
                 )
                 noexcept {
-                    if (M_addr__.M_socketfd < 0 || M_addr__.M_this_addr_invalid 
-                        || M_addr__.M_resovler_addrs == nullptr || M_message__.empty()) {
+                    if (M_context__.M_socketfd < 0 || M_context__.M_this_addr_invalid 
+                        || M_context__.M_resovler_addrs == nullptr || M_message__.empty()) {
                             //PARAMPER INVLIAD
+                            std::error_code ec = std::make_error_code(std::errc::bad_file_descriptor);
                             M_threadManager.getThreadManager()
-                                .asyncTaskvoid(callback_token , -1 ,
-                                    std::string("Paramter invliad!"), size_t(0) , 
-                                    std::move(M_addr__)
+                                .asyncTaskvoid(callback_token , ec , size_t(0) , 
+                                    std::move(M_context__)
                                 );
                         return -1;
                     }
                     
                     //UPDATE CLIENT CONFIGURE
                     size_t M_message_lenght = strlen(M_message__.c_str());
-                    M_addr__.M_clientMessage = M_message__;
-                    M_addr__.M_clientMessageLength = M_message_lenght;
+                    M_context__.M_clientMessage = M_message__;
+                    M_context__.M_clientMessageLength = M_message_lenght;
 
                     M_threadManager.getThreadManager()
                         .asyncTaskvoid([self = shared_from_this() ,
-                            M_callback_token__ = std::function<void(int , std::string , size_t ,
-                                 struct stagdeer::client::socketTcp::client_addrs&&)>
-                                 (std::move(callback_token)) , M_addr_ = std::move(M_addr__)]() 
+                            M_callback_token__ = std::function<void(const std::error_code& , size_t ,
+                                 struct stagdeer::client::socketTcp::client_context&&)>
+                                 (std::move(callback_token)) ,
+                                  M_context__ = std::move(M_context__)]() 
                             mutable -> void {
 
                             //TRY WRITE MESSAGE
                             int M_written = 0;
                             int M_total_write = 0;
-                            while (M_written < strlen(M_addr_.M_clientMessage.c_str())) {
-                                int M_write_ret = write(M_addr_.M_socketfd, 
-                                    M_addr_.M_clientMessage.c_str() + M_written, 
-                                    strlen(M_addr_.M_clientMessage.c_str()) - M_written
+                            while (M_written < strlen(M_context__.M_clientMessage.c_str())) {
+                                int M_write_ret = write(M_context__.M_socketfd, 
+                                    M_context__.M_clientMessage.c_str() + M_written, 
+                                    strlen(M_context__.M_clientMessage.c_str()) - M_written
                                 );
 
                                 if (M_write_ret < 0) {
                                     //WRITE FAILED
-                                    struct client_addrs M_retry_write = 
-                                        self -> M_retryTcpwrite(M_addr_, M_write_ret, 
-                                            strlen(M_addr_.M_clientMessage.c_str()), errno);
-                                        if (M_retry_write.M_is_retry_success) {
+                                    struct client_context M_retry_write_ctx = 
+                                        self -> M_retryTcpwrite(M_context__, M_write_ret, 
+                                            strlen(M_context__.M_clientMessage.c_str()), errno);
+                                        if (M_retry_write_ctx.M_is_retry_success) {
                                             //RETRY SUCCESS
-                                            if (M_retry_write.M_client_write_bytes == 0) {
+                                            if (M_retry_write_ctx.M_client_write_bytes == 0) {
                                                 //FALSE RETRY SUCCESS
+                                                std::error_code ec = std::make_error_code(std::errc::bad_address);
                                                 self -> M_threadManager.getThreadManager()
-                                                    .asyncTaskvoid(std::move(M_callback_token__),
-                                                    -1 ,std::string("Write failed! ERR: " + 
-                                                        std::string(strerror(errno))), 
-                                                        size_t(M_total_write) , std::move(M_addr_)
+                                                    .asyncTaskvoid(std::move(M_callback_token__), ec ,
+                                                        size_t(M_total_write) , std::move(M_context__)
                                                     );
                                                 return;
                                             } else {
                                                 //TRUE RETRY SUCCESS
+                                                std::error_code ec;
                                                 self -> M_threadManager.getThreadManager()
-                                                    .asyncTaskvoid(std::move(M_callback_token__), 2 ,
-                                                    "Retry write to server success" , M_retry_write.M_client_write_bytes + M_total_write ,
-                                                        std::move(M_retry_write)
+                                                    .asyncTaskvoid(std::move(M_callback_token__), ec ,
+                                                     M_retry_write_ctx.M_client_write_bytes + M_total_write ,
+                                                        std::move(M_retry_write_ctx)
                                                     );
                                                 return;
                                             }
                                         }
                                     //RETRY FAILED
+                                    std::error_code ec = std::make_error_code(std::errc::io_error);
                                     self -> M_threadManager.getThreadManager()
-                                        .asyncTaskvoid(std::move(M_callback_token__),
-                                        -1 ,std::string("Write failed! ERR: " + 
-                                            std::string(strerror(errno))), 
-                                            size_t(M_total_write + M_total_write) , std::move(M_addr_)
+                                        .asyncTaskvoid(std::move(M_callback_token__), ec,
+                                            size_t(M_total_write + M_total_write) , std::move(M_context__)
                                         );
                                     return;
                                 }
@@ -440,27 +449,28 @@ namespace stagdeer {
                                 //UPDATE MESSAGE
                                 M_total_write += M_write_ret;
                                 M_written += M_write_ret;
-                                if (M_total_write == strlen(M_addr_.M_clientMessage.c_str())) {
+                                if (M_total_write == strlen(M_context__.M_clientMessage.c_str())) {
                                     //QUIT WHILE LOOP WRITE
                                     break;
                                 }
                                 //CONTINUE
                             } 
                             //WRITE SUCCESS
-                            if (M_total_write != strlen(M_addr_.M_clientMessage.c_str())) {
+                            if (M_total_write != strlen(M_context__.M_clientMessage.c_str())) {
                                 //WRITE INCOMPLETE
+                                std::error_code ec;
                                 self -> M_threadManager.getThreadManager()
-                                    .asyncTaskvoid(std::move(M_callback_token__),
-                                        3 , std::string("Success but writed bytes not incomplete") , 
-                                        size_t(M_total_write), std::move(M_addr_)
+                                    .asyncTaskvoid(std::move(M_callback_token__), ec ,
+                                        size_t(M_total_write), std::move(M_context__)
                                     );
                                 return;
                             }
 
+                            std::error_code ec;
                             self -> M_threadManager.getThreadManager()
-                                .asyncTaskvoid(std::move(M_callback_token__),  1 ,
-                                    std::string("Write success") , size_t(M_total_write) ,
-                                    std::move(M_addr_)
+                                .asyncTaskvoid(std::move(M_callback_token__), ec
+                                 , size_t(M_total_write) ,
+                                    std::move(M_context__)
                                 );
                             return;
                         });
@@ -478,28 +488,28 @@ namespace stagdeer {
             typename stagdeer::util::lamdba_trais::constraint<
                 stagdeer::util::lamdba_trais::M_is_retTp<
                     typename stagdeer::util::lamdba_trais::M_get_lamdba_ret_Tp <
-                        Tp, int , std::string , size_t , std::shared_ptr<
+                        Tp, const std::error_code& , size_t , std::shared_ptr<
                             stagdeer::client::readBuffer
-                        >&& , struct client_addrs&&
+                        >&& , struct client_context&&
                     >::__M_ret_lmdba                
                 , void>::__is_M_ret_Tp
             >::type
             async_read_until(
                 Tp&& callback_token, 
-                client_addrs&& M_addr,
+                client_context&& M_context_,
                 const std::string& M_delimiter
             ) noexcept {
                 //CREATE BUFFER
                 //ADD UNITL READ TASK TO THREAD
                 std::shared_ptr<stagdeer::client::readBuffer> M_recv_buffer = 
                     std::make_shared<stagdeer::client::readBuffer>();
-                    M_addr.M_client_read_buffer = std::move(M_recv_buffer);
+                    M_context_.M_client_read_buffer = std::move(M_recv_buffer);
                 M_threadManager.getThreadManager()
                     .asyncTaskvoid([self = shared_from_this() , 
-                        M_callback_token__ = std::function<void(int , std::string ,
+                        M_callback_token__ = std::function<void(const std::error_code&,
                             size_t ,std::shared_ptr<stagdeer::client::readBuffer>&& ,
-                             struct client_addrs&&)>(std::move(callback_token)),
-                             M_addrs = std::move(M_addr), M_delimiter]()
+                             struct client_context&&)>(std::move(callback_token)),
+                             M_context_ = std::move(M_context_), M_delimiter]()
                              mutable {
                                 //TRY READ
                                 enum M_READ_STATE {
@@ -517,8 +527,8 @@ namespace stagdeer {
                                         case VERIFY: {                      
                                             //VERIFIYCATION TOALDATA
                                             bool M_found = false;
-                                            const char* M_Tolaldata = M_addrs.M_client_read_buffer->peekData();
-                                            size_t M_readableBytes = M_addrs.M_client_read_buffer->readableBytes();
+                                            const char* M_Tolaldata = M_context_.M_client_read_buffer->peekData();
+                                            size_t M_readableBytes = M_context_.M_client_read_buffer->readableBytes();
                                             for (int M_read_pointer = 0; M_read_pointer + M_delimiter.size()
                                                 <= M_readableBytes; ++ M_read_pointer) {
                                                 if (memcmp(M_Tolaldata + M_read_pointer ,
@@ -540,14 +550,14 @@ namespace stagdeer {
                                             //SETTING TIMEOUT
                                             fd_set M_readtimeout_set;
                                             FD_ZERO(&M_readtimeout_set);
-                                            FD_SET(M_addrs.M_socketfd, &M_readtimeout_set);
+                                            FD_SET(M_context_.M_socketfd, &M_readtimeout_set);
 
                                             struct timeval M_tv;
-                                            M_tv.tv_sec = M_addrs.M_timeout;
+                                            M_tv.tv_sec = M_context_.M_timeout;
                                             M_tv.tv_usec = 0;
 
                                             //WIAT DATA
-                                            int M_wiat_ret = select(M_addrs.M_socketfd + 1 , &M_readtimeout_set, NULL , NULL , &M_tv);
+                                            int M_wiat_ret = select(M_context_.M_socketfd + 1 , &M_readtimeout_set, NULL , NULL , &M_tv);
 
                                             if (M_wiat_ret < 0) {
                                                 M_newState = ERROR;
@@ -555,7 +565,7 @@ namespace stagdeer {
                                             }
                                             
                                             char M_cache_buffer[4096];
-                                            int M_read_bytes = recv(M_addrs.M_socketfd, M_cache_buffer, 
+                                            int M_read_bytes = recv(M_context_.M_socketfd, M_cache_buffer, 
                                                 sizeof(M_cache_buffer), 0);
                                                 if (M_read_bytes < 0) {
                                                     //READ ERROR
@@ -565,7 +575,7 @@ namespace stagdeer {
                                             
                                             //ADD TO BUFFER
                                             if (M_read_bytes > 0) {
-                                                M_addrs.M_client_read_buffer->appendTobuffer(M_cache_buffer, M_read_bytes);
+                                                M_context_.M_client_read_buffer->appendTobuffer(M_cache_buffer, M_read_bytes);
                                                 M_newState = VERIFY;
                                             }
 
@@ -580,22 +590,24 @@ namespace stagdeer {
                                         case ERROR: {
                                             //ERROR HANDLER
                                             //RETRY
-                                            struct client_addrs M_retry_result = self->M_retryTcpRead_until(M_addrs, M_delimiter ,errno);
-                                            M_addrs = std::move(M_retry_result);
+                                            struct client_context M_retry_result = self->M_retryTcpRead_until(M_context_, M_delimiter ,errno);
+                                            M_context_ = std::move(M_retry_result);
                                             if (M_retry_result.M_is_retry_success) {
                                                 //RETRY SUCCESS
+                                                std::error_code ec;
                                                 self->M_threadManager.getThreadManager()
-                                                    .asyncTaskvoid(std::move(M_callback_token__), 2 , std::string("Retry read success!") , 
-                                                    size_t(M_addrs.M_client_read_buffer->readableBytes()), 
-                                                    std::move(M_addrs.M_client_read_buffer) , std::move(M_addrs)
+                                                    .asyncTaskvoid(std::move(M_callback_token__), ec , 
+                                                    size_t(M_context_.M_client_read_buffer->readableBytes()), 
+                                                    std::move(M_context_.M_client_read_buffer) , std::move(M_context_)
                                                 );
                                                 return;
                                             } else { 
                                                 //RETRY FAILED
+                                                std::error_code ec(errno , std::system_category());
                                                 self->M_threadManager.getThreadManager()
-                                                    .asyncTaskvoid(std::move(M_callback_token__), -1 , std::string("Read failed! : " + 
-                                                        std::string(strerror(errno))) , size_t(0) , 
-                                                        std::move(M_addrs.M_client_read_buffer) , std::move(M_addrs)
+                                                    .asyncTaskvoid(std::move(M_callback_token__), 
+                                                    ec, size_t(0) , 
+                                                        std::move(M_context_.M_client_read_buffer) , std::move(M_context_)
                                                     );
                                                 return;
                                             }
@@ -606,21 +618,23 @@ namespace stagdeer {
                                         };
 
                                         case CLOSE: {
-                                            if (M_addrs.M_client_read_buffer->readableBytes() > 0) {
+                                            if (M_context_.M_client_read_buffer->readableBytes() > 0) {
                                                 //CLOSED BUT WITH DATA
+                                                std::error_code ec;
                                                 self->M_threadManager.getThreadManager()
-                                                    .asyncTaskvoid(std::move(M_callback_token__) , 
-                                                    0,  std::string("Connect closed with data") , 
-                                                    size_t(M_addrs.M_client_read_buffer->readableBytes()) , 
-                                                    std::move(M_addrs.M_client_read_buffer) , std::move(M_addrs)
+                                                    .asyncTaskvoid(std::move(M_callback_token__) , ec , 
+                                                    size_t(M_context_.M_client_read_buffer->readableBytes()) , 
+                                                    std::move(M_context_.M_client_read_buffer) , 
+                                                    std::move(M_context_)
                                                 );
                                                 return;
                                             } else {
+                                                std::error_code ec;
                                                 self->M_threadManager.getThreadManager()
                                                     .asyncTaskvoid(std::move(M_callback_token__),
-                                                     0 , std::string("Connect closed") , 0 ,
-                                                      std::move(M_addrs.M_client_read_buffer) ,
-                                                       std::move(M_addrs)
+                                                    ec , 0 ,
+                                                      std::move(M_context_.M_client_read_buffer) ,
+                                                       std::move(M_context_)
                                                 );
                                                 return;
                                             }
@@ -629,10 +643,10 @@ namespace stagdeer {
                                     };
                                 }
             
+                                std::error_code ec;
                                 self->M_threadManager.getThreadManager()
-                                    .asyncTaskvoid(std::move(M_callback_token__), 1 , 
-                                        std::string("Find success") , size_t(M_addrs.M_client_read_buffer->readableBytes()) ,
-                                        std::move(M_addrs.M_client_read_buffer) , std::move(M_addrs)
+                                    .asyncTaskvoid(std::move(M_callback_token__), ec  , size_t(M_context_.M_client_read_buffer->readableBytes()) ,
+                                        std::move(M_context_.M_client_read_buffer) , std::move(M_context_)
                                     );
                                 return;
                             });
@@ -652,28 +666,28 @@ namespace stagdeer {
             typename stagdeer::util::lamdba_trais::constraint<
                 stagdeer::util::lamdba_trais::M_is_retTp<
                     typename stagdeer::util::lamdba_trais::M_get_lamdba_ret_Tp<
-                        Tp, int ,  std::string , size_t , std::shared_ptr<
+                        Tp, const std::error_code& ,size_t , std::shared_ptr<
                             stagdeer::client::readBuffer
-                        >&& , struct client_addrs&&
+                        >&& , struct client_context&&
                     >::__M_ret_lmdba, void
                 >::__is_M_ret_Tp
             >::type
             async_read (
                 Tp&& callback_token,
                 std::shared_ptr<stagdeer::client::readBuffer>&& M_readBuffer,
-                client_addrs&& M_addrs_,
+                client_context&& M_context_,
                 size_t M_chache_size
             ) noexcept {
-                M_addrs_.M_client_read_buffer = std::move(M_readBuffer);
+                M_context_.M_client_read_buffer = std::move(M_readBuffer);
                 if (M_chache_size <= 0) {
                     M_chache_size = 4096;
                 }
                 M_threadManager.getThreadManager()
-                    .asyncTaskvoid([M_addrs = std::move(M_addrs_) , 
+                    .asyncTaskvoid([M_context_ = std::move(M_context_) , 
                         M_chache_size , M_callback_token__ = 
-                        std::function<void(int , std::string , size_t,
+                        std::function<void(const std::error_code&, size_t,
                             std::shared_ptr<stagdeer::client::readBuffer>&& , 
-                                struct client_addrs&&)>(std::move(callback_token)) , 
+                                struct client_context&&)>(std::move(callback_token)) , 
                                 self = shared_from_this()
                         ]()
                         mutable{
@@ -693,13 +707,13 @@ namespace stagdeer {
                                 //SETTING TIMEOUT
                                     fd_set M_readtimouet_set;
                                     FD_ZERO(&M_readtimouet_set);
-                                    FD_SET(M_addrs.M_socketfd, &M_readtimouet_set);
+                                    FD_SET(M_context_.M_socketfd, &M_readtimouet_set);
 
                                     struct timeval M_tv;
-                                    M_tv.tv_sec = M_addrs.M_timeout;
+                                    M_tv.tv_sec = M_context_.M_timeout;
                                     M_tv.tv_usec = 0;
                                     //WIAT DATA
-                                    int M_wiat_ret = select(M_addrs.M_socketfd + 1, 
+                                    int M_wiat_ret = select(M_context_.M_socketfd + 1, 
                                         &M_readtimouet_set, nullptr, 
                                         nullptr, &M_tv);
                                     if (M_wiat_ret < 0) {
@@ -709,7 +723,7 @@ namespace stagdeer {
                                     }
                                     //TRY READ
                                     char M_cache_buffer[4096];
-                                    int M_read_ret = recv(M_addrs.M_socketfd, 
+                                    int M_read_ret = recv(M_context_.M_socketfd, 
                                         M_cache_buffer, sizeof(M_cache_buffer), 0);
                                         if (M_read_ret < 0) {
                                             //ERROR
@@ -718,7 +732,7 @@ namespace stagdeer {
                                         }
                                     if (M_read_ret > 0) {
                                         //APPEND TO BUFFER
-                                        M_addrs.M_client_read_buffer->appendTobuffer(M_cache_buffer,
+                                        M_context_.M_client_read_buffer->appendTobuffer(M_cache_buffer,
                                                 M_read_ret);
                                         M_state = VERIFY;
                                         break;
@@ -732,21 +746,21 @@ namespace stagdeer {
                                 //READING END
                                 
                                 case CLOSE: {
-                                    if (M_addrs.M_client_read_buffer->readableBytes() >= 0) {
+                                    if (M_context_.M_client_read_buffer->readableBytes() > 0) {
+                                        std::error_code ec;
                                         self->M_threadManager.getThreadManager()
-                                            .asyncTaskvoid(std::move(M_callback_token__),
-                                            3 , std::string("Connection closed with data") , 
-                                            size_t(M_addrs.M_client_read_buffer->readableBytes()),
-                                                std::move(M_addrs.M_client_read_buffer) , 
-                                            std::move(M_addrs)
+                                            .asyncTaskvoid(std::move(M_callback_token__), ec ,
+                                            size_t(M_context_.M_client_read_buffer->readableBytes()),
+                                                std::move(M_context_.M_client_read_buffer) , 
+                                            std::move(M_context_)
                                         );
-                                        return;
+                                        return; 
                                     } else {
+                                        std::error_code ec;
                                         self->M_threadManager.getThreadManager()
-                                            .asyncTaskvoid(std::move(M_callback_token__), -2 ,
-                                            std::string("Connection closed") , 
-                                                size_t(0) , std::move(M_addrs.M_client_read_buffer)
-                                                , std::move(M_addrs)
+                                            .asyncTaskvoid(std::move(M_callback_token__), ec,
+                                                size_t(0) , std::move(M_context_.M_client_read_buffer)
+                                                , std::move(M_context_)
                                             );
                                         return;
                                     }
@@ -756,7 +770,7 @@ namespace stagdeer {
                                 
                                 case VERIFY: {
                                     //VERIFY
-                                    if (M_addrs.M_client_read_buffer->readableBytes() >= M_chache_size) {
+                                    if (M_context_.M_client_read_buffer->readableBytes() >= M_chache_size) {
                                         //CHANGE STATUS
                                         M_state = DONE;
                                         break;;
@@ -770,38 +784,37 @@ namespace stagdeer {
 
                                 case ERROR: {
                                     if (errno == 106) {
+                                        std::error_code ec;
                                         self->M_threadManager.getThreadManager()
                                             .asyncTaskvoid(
-                                                std::move(M_callback_token__) , 1 , 
-                                                std::string("Read success") ,size_t(0),
-                                                std::move(M_addrs.M_client_read_buffer) , 
-                                                std::move(M_addrs)
+                                                std::move(M_callback_token__) , ec ,size_t(0),
+                                                std::move(M_context_.M_client_read_buffer) , 
+                                                std::move(M_context_)
                                         );
                                         return;
                                     }
-                                    struct client_addrs M_retry_read = 
-                                        self->M_retryTcpRead(M_addrs, 
+                                    struct client_context M_retry_read = 
+                                        self->M_retryTcpRead(M_context_, 
                                             errno , M_chache_size);
                                     if (M_retry_read.M_is_retry_success) {
                                         //RETRY SUCCESS
-                                        M_addrs = std::move(M_retry_read);
+                                        std::error_code ec;
+                                        M_context_ = std::move(M_retry_read);
                                         self->M_threadManager.getThreadManager()
                                             .asyncTaskvoid(std::move(M_callback_token__), 
-                                            2 , std::string("Read success") , 
-                                            size_t(M_addrs.M_client_read_buffer->readableBytes()),
-                                            std::move(M_addrs.M_client_read_buffer),
-                                            std::move(M_addrs)
+                                                ec, size_t(M_context_.M_client_read_buffer->readableBytes()),
+                                            std::move(M_context_.M_client_read_buffer),
+                                            std::move(M_context_)
                                         );
                                         return;
                                     }
                                     //RETRY FAILED
+                                    std::error_code ec(errno , std::system_category());
                                     self->M_threadManager.getThreadManager()
                                             .asyncTaskvoid(
-                                                std::move(M_callback_token__), -1
-                                                ,std::string("Read failed: " + 
-                                                    std::string(strerror(errno))
-                                                ), size_t(0) , std::move(M_addrs.M_client_read_buffer) ,
-                                            std::move(M_addrs)
+                                                std::move(M_callback_token__), ec,
+                                                 size_t(0) , std::move(M_context_.M_client_read_buffer) ,
+                                            std::move(M_context_)
                                         );
                                     return;
                                 };
@@ -809,12 +822,13 @@ namespace stagdeer {
                                 //ERROR END
 
                                 case DONE: {
+                                    std::error_code ec;
                                     self->M_threadManager.getThreadManager()
-                                        .asyncTaskvoid(std::move(M_callback_token__), 
-                                        1 , std::string("Read success") , 
-                                        size_t(M_addrs.M_client_read_buffer->readableBytes()),
-                                        std::move(M_addrs.M_client_read_buffer),
-                                        std::move(M_addrs)
+                                        .asyncTaskvoid(std::move(M_callback_token__) ,
+                                        ec, 
+                                        size_t(M_context_.M_client_read_buffer->readableBytes()),
+                                        std::move(M_context_.M_client_read_buffer),
+                                        std::move(M_context_)
                                     );
 
                                     return;
@@ -831,35 +845,36 @@ namespace stagdeer {
             }
 
             private:
-            struct client_addrs M_client_config_addrs;
+            struct client_context M_client_context;
             stagdeer::THREAD& M_threadManager = stagdeer::THREAD::getInstance();
 
             #ifdef STAGDEER_GNU_LINUX
 
-                struct client_addrs M_retryTcpRead(struct client_addrs M_addrs__ , int M_errno_copy , size_t M_chache_size) {
+                struct client_context M_retryTcpRead(struct client_context M_context__ , int M_errno_copy , 
+                    size_t M_chache_size) {
                     if (M_errno_copy == 106) {
-                        M_addrs__.M_is_retry_success = true;
-                        return M_addrs__;
+                        M_context__.M_is_retry_success = true;
+                        return M_context__;
                     }
-                    if (M_addrs__.M_max_rety_count <= 0) {
-                        M_addrs__.M_max_rety_count = 10;
+                    if (M_context__.M_max_rety_count <= 0) {
+                        M_context__.M_max_rety_count = 10;
                     }
 
-                    M_addrs__.M_connect_rety_count = 0;
-                    while (M_addrs__.M_connect_rety_count < M_addrs__.M_max_rety_count) {
+                    M_context__.M_connect_rety_count = 0;
+                    while (M_context__.M_connect_rety_count < M_context__.M_max_rety_count) {
                         M_errno_copy = errno; //UPDATE ERRNO
                         if (M_errno_copy == EAGAIN || M_errno_copy == EINTR ) {
                             //RETRY READ
-                            SLEEP(1000 * M_addrs__.M_connect_rety_count);
+                            SLEEP(1000 * M_context__.M_connect_rety_count);
                             char M_retry_read_buffer[1096];
-                            int M_read_ret = recv(M_addrs__.M_socketfd, M_retry_read_buffer, sizeof(M_retry_read_buffer), 0);
-                                M_addrs__.M_connect_rety_count ++;
+                            int M_read_ret = recv(M_context__.M_socketfd, M_retry_read_buffer, sizeof(M_retry_read_buffer), 0);
+                                M_context__.M_connect_rety_count ++;
                                 
                                 if (M_read_ret < 0) {
                                     //READ FAILED
-                                    if (M_addrs__.M_max_rety_count >= M_addrs__.M_connect_rety_count) {
-                                        M_addrs__.M_is_retry_success = false;
-                                        return M_addrs__;
+                                    if (M_context__.M_max_rety_count >= M_context__.M_connect_rety_count) {
+                                        M_context__.M_is_retry_success = false;
+                                        return M_context__;
                                     }
                                     
                                     //CONTINUE
@@ -868,81 +883,81 @@ namespace stagdeer {
 
                                 if (M_read_ret > 0) {
                                     //APPEDN TO BUFFER
-                                    M_addrs__.M_client_read_buffer->appendTobuffer(M_retry_read_buffer, M_read_ret);
+                                    M_context__.M_client_read_buffer->appendTobuffer(M_retry_read_buffer, M_read_ret);
                                         //VERIFY BYTES
-                                        if (M_read_ret < M_chache_size && M_addrs__.M_max_rety_count > 
-                                            M_addrs__.M_connect_rety_count) {
+                                        if (M_read_ret < M_chache_size && M_context__.M_max_rety_count > 
+                                            M_context__.M_connect_rety_count) {
                                             //CONTINUE READ
                                             continue;
                                         } else {
                                             if (M_read_ret >= M_chache_size || M_read_ret < M_chache_size) {
                                                 //SUCCESS
-                                                M_addrs__.M_is_retry_success = true;
-                                                return M_addrs__;
+                                                M_context__.M_is_retry_success = true;
+                                                return M_context__;
                                             }
                                         }
                                 }
 
                                 if (M_read_ret == 0) {
                                     //CONNECTION CLOSED
-                                    if (M_addrs__.M_client_read_buffer->readableBytes() >= 0) {
-                                        M_addrs__.M_is_retry_success = true;
-                                        return M_addrs__;
+                                    if (M_context__.M_client_read_buffer->readableBytes() >= 0) {
+                                        M_context__.M_is_retry_success = true;
+                                        return M_context__;
                                     }
-                                    M_addrs__.M_is_retry_success = false;
-                                    return M_addrs__;
+                                    M_context__.M_is_retry_success = false;
+                                    return M_context__;
                                 }
                         }
                         //CANOT RETRY
-                        M_addrs__.M_is_retry_success = false;
-                        return M_addrs__;
+                        M_context__.M_is_retry_success = false;
+                        return M_context__;
                     }
 
-                    M_addrs__.M_is_retry_success = false;
-                    return M_addrs__;
+                    M_context__.M_is_retry_success = false;
+                    return M_context__;
                 }
 
 
-                struct client_addrs M_retryTcpRead_until(struct client_addrs M_addrs__ , 
+                struct client_context M_retryTcpRead_until(struct client_context M_context__ , 
                     const std::string& M_delimiter , int M_errno_copy) {
-                    if (M_addrs__.M_socketfd < 0) {
+                    if (M_context__.M_socketfd < 0) {
                         throw std::runtime_error("Invalid socket!");
                     }
-                    if (M_addrs__.M_max_rety_count <= 0) {
-                        M_addrs__.M_max_rety_count = 10;
+                    if (M_context__.M_max_rety_count <= 0) {
+                        M_context__.M_max_rety_count = 10;
                     }
                     //CLEARN RETRY COUNT
-                    M_addrs__.M_connect_rety_count = 0;
+                    M_context__.M_connect_rety_count = 0;
                     //UPDATE ERROR
-                    SLEEP(1000 * M_addrs__.M_connect_rety_count);
-                    while (M_addrs__.M_connect_rety_count < M_addrs__.M_max_rety_count) {
+                    SLEEP(1000 * M_context__.M_connect_rety_count);
+                    while (M_context__.M_connect_rety_count < M_context__.M_max_rety_count) {
                     M_errno_copy = errno;
                     if (M_errno_copy == 106) {
                         //ALREADY CONNECT BUG
-                        M_addrs__.M_is_retry_success = true;
-                        return M_addrs__;
+                        M_context__.M_is_retry_success = true;
+                        return M_context__;
                     }
                         if (M_errno_copy == EAGAIN || M_errno_copy == EINTR) {
                             //RETRY
                             //ADD RETRY COUNT
-                            M_addrs__.M_connect_rety_count ++;
-                            size_t M_readableBytes = M_addrs__.M_client_read_buffer->readableBytes();
+                            M_context__.M_connect_rety_count ++;
+                            size_t M_readableBytes = M_context__.M_client_read_buffer->readableBytes();
                             for (int M_index_ = 0; M_index_ + M_delimiter.size() <= M_readableBytes; 
                                 ++ M_index_) {
-                                    if (memcmp(M_addrs__.M_client_read_buffer->peekData() + M_index_,
+                                    if (memcmp(M_context__.M_client_read_buffer->peekData() + M_index_,
                                          M_delimiter.c_str(), M_delimiter.size()) == 0) {
                                             //RETRY SUCCESS
-                                            M_addrs__.M_is_retry_success = true;
-                                        return M_addrs__;
+                                            M_context__.M_is_retry_success = true;
+                                        return M_context__;
                                     }
                             }
 
                             char M_cache_buffer[1086];
-                            int M_recv_bytes = read(M_addrs__.M_socketfd, M_cache_buffer, sizeof(M_cache_buffer));
+                            int M_recv_bytes = read(M_context__.M_socketfd, M_cache_buffer, sizeof(M_cache_buffer));
                                 if (M_recv_bytes < 0) {
-                                    if (M_addrs__.M_connect_rety_count >= M_addrs__.M_max_rety_count) {
-                                        M_addrs__.M_is_retry_success = false;
-                                        return M_addrs__;
+                                    if (M_context__.M_connect_rety_count >= M_context__.M_max_rety_count) {
+                                        M_context__.M_is_retry_success = false;
+                                        return M_context__;
                                     }
 
                                     //CONTINUE RETRY
@@ -951,56 +966,56 @@ namespace stagdeer {
 
                                 if (M_recv_bytes == 0) {
                                     //CONNECT CLOSE
-                                    if (M_addrs__.M_client_read_buffer->readableBytes() != 0) {
-                                        M_addrs__.M_is_retry_success = true;
-                                        return M_addrs__;
+                                    if (M_context__.M_client_read_buffer->readableBytes() != 0) {
+                                        M_context__.M_is_retry_success = true;
+                                        return M_context__;
                                     }
-                                    M_addrs__.M_is_retry_success = false;
-                                    return M_addrs__;
+                                    M_context__.M_is_retry_success = false;
+                                    return M_context__;
                                 }
                             if (M_recv_bytes > 0) {
                                 //GO TO VERIFY
                                 //ADD DATA TO BUFFER
-                                M_addrs__.M_client_read_buffer->appendTobuffer(M_cache_buffer, M_recv_bytes);
+                                M_context__.M_client_read_buffer->appendTobuffer(M_cache_buffer, M_recv_bytes);
                                 continue;
                             }
                         } else {
                             //CANOT RETRY
-                            M_addrs__.M_is_retry_success = false;
-                            return M_addrs__;
+                            M_context__.M_is_retry_success = false;
+                            return M_context__;
                         }
                     }
-                    M_addrs__.M_is_retry_success = false;
-                    return M_addrs__;
+                    M_context__.M_is_retry_success = false;
+                    return M_context__;
                 }
 
-                struct client_addrs M_retryTcpConnect(struct client_addrs M_addrs__ , int M_errno_copy) {
-                    if (M_addrs__.M_max_rety_count <= 0) {
-                        M_addrs__.M_max_rety_count = 10;
+                struct client_context M_retryTcpConnect(struct client_context M_context__ , int M_errno_copy) {
+                    if (M_context__.M_max_rety_count <= 0) {
+                        M_context__.M_max_rety_count = 10;
                     }
-                    while (M_addrs__.M_connect_rety_count < M_addrs__.M_max_rety_count) {
+                    while (M_context__.M_connect_rety_count < M_context__.M_max_rety_count) {
                     M_errno_copy = errno;
                     if (M_errno_copy == 106) {
                         //ALREADY CONNECTION
-                        M_addrs__.M_is_retry_success = true;
-                        return M_addrs__;
+                        M_context__.M_is_retry_success = true;
+                        return M_context__;
                     }
                         if (
                             M_errno_copy == EAGAIN || 
                             M_errno_copy == EWOULDBLOCK || 
                             M_errno_copy == EINTR ||
                             M_errno_copy == ETIMEDOUT ||
-                            M_errno_copy && M_addrs__.M_max_rety_count 
-                                > M_addrs__.M_connect_rety_count) {
+                            M_errno_copy && M_context__.M_max_rety_count 
+                                > M_context__.M_connect_rety_count) {
                             //RETRY TO
-                            M_addrs__.M_connect_rety_count += 1; //RETY COUNT +1
-                            SLEEP(1000 * M_addrs__.M_connect_rety_count);
-                            int M_retry_result = connect(M_addrs__.M_socketfd, 
-                            M_addrs__.M_resovler_addrs->ai_addr, 
-                                M_addrs__.M_resovler_addrs->ai_addrlen);
+                            M_context__.M_connect_rety_count += 1; //RETY COUNT +1
+                            SLEEP(1000 * M_context__.M_connect_rety_count);
+                            int M_retry_result = connect(M_context__.M_socketfd, 
+                            M_context__.M_resovler_addrs->ai_addr, 
+                                M_context__.M_resovler_addrs->ai_addrlen);
                                 if (M_retry_result < 0) {
                                     //RETRY FAILED
-                                    if (M_addrs__.M_max_rety_count == M_addrs__.M_connect_rety_count) {
+                                    if (M_context__.M_max_rety_count == M_context__.M_connect_rety_count) {
                                         //RETRY FAILED
                                         //CHISNES: 无药可救
                                         break;
@@ -1011,23 +1026,23 @@ namespace stagdeer {
                                     }
                                 } else {
                                     //RETRY SUCCESS
-                                    M_addrs__.M_is_retry_success = true;
-                                    return M_addrs__;
+                                    M_context__.M_is_retry_success = true;
+                                    return M_context__;
                                 }
                             continue;
                         }
                         //NOT RETTY BREAK WHILE
                         break;
                     }
-                    return M_addrs__;
+                    return M_context__;
                 }
 
-                struct client_addrs M_retryTcpwrite(struct client_addrs& M_addr , 
+                struct client_context M_retryTcpwrite(struct client_context& M_context_ , 
                     size_t M_total_write , size_t M_strfull_len, int M_errno_copy) {
-                        if (M_addr.M_socketfd < 0 || M_addr.M_this_addr_invalid 
-                            || M_addr.M_resovler_addrs == nullptr) {
-                                M_addr.M_is_retry_success = false;
-                                return M_addr;
+                        if (M_context_ .M_socketfd < 0 || M_context_ .M_this_addr_invalid 
+                            || M_context_.M_resovler_addrs == nullptr) {
+                                M_context_.M_is_retry_success = false;
+                                return M_context_;
                             }
                         if (M_errno_copy == EAGAIN || 
                             M_errno_copy == EWOULDBLOCK || 
@@ -1038,24 +1053,24 @@ namespace stagdeer {
                         ) {
                             //WTITE WITH RETRY
                             //CLEAR CONNECT RETRY COUNT
-                            M_addr.M_connect_rety_count = 0;
-                            while (M_addr.M_connect_rety_count < M_addr.M_max_rety_count) {
+                            M_context_.M_connect_rety_count = 0;
+                            while (M_context_.M_connect_rety_count < M_context_.M_max_rety_count) {
                                 //ADD WRITE RETRY COUNT
-                                M_addr.M_connect_rety_count ++;
-                                SLEEP(1000 * M_addr.M_connect_rety_count);
-                                const char* M_retry_char = M_addr.M_clientMessage.c_str();
+                                M_context_.M_connect_rety_count ++;
+                                SLEEP(1000 * M_context_.M_connect_rety_count);
+                                const char* M_retry_char = M_context_.M_clientMessage.c_str();
 
                                 //RETRY WRITE WHILE LOOP
                                 int M_recv = 0;
                                 while (M_total_write < M_strfull_len) {
-                                    M_recv = write(M_addr.M_socketfd, 
-                                        M_addr.M_clientMessage.c_str() + M_total_write,
+                                    M_recv = write(M_context_.M_socketfd, 
+                                        M_context_.M_clientMessage.c_str() + M_total_write,
                                          M_strfull_len - M_total_write);
                                     if (M_recv < 0) {
-                                        if (M_addr.M_max_rety_count >= M_addr.M_connect_rety_count) {
+                                        if (M_context_.M_max_rety_count >= M_context_.M_connect_rety_count) {
                                             //RETRY FAILED
-                                            M_addr.M_is_retry_success = false;
-                                            return M_addr;
+                                            M_context_.M_is_retry_success = false;
+                                            return M_context_;
                                         }
                                         //CONTINUE RETRY
                                         continue;
@@ -1063,34 +1078,34 @@ namespace stagdeer {
 
                                     if (M_recv + M_total_write == M_strfull_len) {
                                         //RETRY SUCCESS
-                                        M_addr.M_is_retry_success = true;
-                                        M_addr.M_client_retry_write_bytes = M_total_write;
-                                        return M_addr;
+                                        M_context_.M_is_retry_success = true;
+                                        M_context_.M_client_retry_write_bytes = M_total_write;
+                                        return M_context_;
                                     }
 
                                     //UPDATE MESSAGE
                                     M_total_write += M_recv;
-                                    M_addr.M_client_retry_write_bytes = M_total_write;
+                                    M_context_.M_client_retry_write_bytes = M_total_write;
                                 }
                             }
                             //RETRY END
                             if (M_total_write <= M_strfull_len) {
                                 //DATA COMPLETE
-                                M_addr.M_is_retry_success = true;
-                                M_addr.M_client_retry_write_bytes = M_total_write;
-                                return M_addr;
+                                M_context_.M_is_retry_success = true;
+                                M_context_.M_client_retry_write_bytes = M_total_write;
+                                return M_context_;
                             }
 
                             //DATA NOT INCOMPLETE
                             if (M_total_write < M_strfull_len || M_total_write <= 0) {
                                 //FAILED
-                                M_addr.M_is_retry_success = false;
-                                return M_addr;
+                                M_context_.M_is_retry_success = false;
+                                return M_context_;
                             }
                         }
                     //CANOT RETRY ERROR
-                    M_addr.M_is_retry_success = false;
-                    return M_addr;
+                    M_context_.M_is_retry_success = false;
+                    return M_context_;
                 }
             #else
                 //TODO: WINDOWS RETRY
@@ -1125,15 +1140,15 @@ namespace stagdeer {
                 return M_chunked_size_sizeT;
             }
 
-            struct client_addrs M_tryIpaddrs(struct client_addrs M_addrs__) {
-                if (M_addrs__.M_resovler_addrs == nullptr) {
-                    throw std::runtime_error("'M_addrs__' is null pointer!");
+            struct client_context M_tryIpaddrs(struct client_context& M_context__) {
+                if (M_context__.M_resovler_addrs == nullptr) {
+                    throw std::runtime_error("'M_context__' is null pointer!");
                 }
                 //FOR RESOLVER RESULT
-                for (struct addrinfo* M_resolver_result = M_addrs__.M_resovler_addrs; 
+                for (struct addrinfo* M_resolver_result = M_context__.M_resovler_addrs; 
                     M_resolver_result != nullptr; M_resolver_result = 
                     M_resolver_result->ai_next) {
-                        if (M_addrs__.M_is_enable_ipV6) {
+                        if (M_context__.M_is_enable_ipV6) {
                             if (M_resolver_result->ai_family != AF_INET6) {
                                 continue;
                             }
@@ -1153,15 +1168,15 @@ namespace stagdeer {
                             int M_reuse = 1;
                             setsockopt(M_test_fd, SOL_SOCKET, 
                                 SO_REUSEADDR, &M_reuse, sizeof(M_reuse));
-                            M_addrs__.M_socketfd = std::move(M_test_fd);
-                            return M_addrs__;
+                            M_context__.M_socketfd = std::move(M_test_fd);
+                            return M_context__;
                         }
                         CLOSE_FD(M_test_fd);
                         continue;
                     }
                     //ALL ADDRS INVALID
-                    M_addrs__.M_this_addr_invalid = true;
-                return M_addrs__;
+                    M_context__.M_this_addr_invalid = true;
+                return M_context__;
             }
             
             struct connectInfo {
